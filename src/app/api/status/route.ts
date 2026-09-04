@@ -1,14 +1,19 @@
 import { getWhatsAppConfig, isLiveConfig, maskSecret } from "@/lib/config";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const config = await getWhatsAppConfig();
   const live = isLiveConfig(config);
 
-  return Response.json({
-    mode: live ? "live" : "demo",
-    configured: live,
-    businessName: config.businessName,
-    phoneNumberIdMasked: maskSecret(config.phoneNumberId),
-    webhookPath: "/api/webhook/whatsapp",
-  });
+  return Response.json(
+    {
+      mode: live ? "live" : "demo",
+      configured: live,
+      businessName: config.businessName,
+      phoneNumberIdMasked: maskSecret(config.phoneNumberId),
+      webhookPath: "/api/webhook/whatsapp",
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
