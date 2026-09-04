@@ -21,9 +21,14 @@ function isStatusId(value: unknown): value is StatusId {
   return typeof value === "string" && STATUS_IDS.includes(value as StatusId);
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const updates = await listUpdates();
-  return Response.json({ updates });
+  return Response.json(
+    { updates },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 export async function POST(request: Request) {

@@ -4,9 +4,12 @@ import path from "node:path";
 import { getStatusTemplate } from "./templates";
 import type { AppStore, Customer, StatusId, StatusUpdate } from "./types";
 
-const STORE_PATH = path.join(process.cwd(), ".data", "store.json");
+const DATA_STORE = path.join(process.cwd(), ".data", "store.json");
+const TMP_STORE = path.join("/tmp", "relay-store.json");
 
-const memory: { store: AppStore | null } = { store: null };
+type GlobalRelay = typeof globalThis & { __relayStore?: AppStore };
+
+const g = globalThis as GlobalRelay;
 
 function nowIso(offsetMs = 0): string {
   return new Date(Date.now() + offsetMs).toISOString();
@@ -28,7 +31,7 @@ function seedStore(): AppStore {
       phone: "+14155550102",
       lastReference: "ORD-1847",
       lastStatusId: "out_for_delivery",
-      lastContactAt: nowIso(-40 * 60 * 1000),
+      lastContactAt: nowIso(-40 * 60 * 60 * 1000),
     },
     {
       id: "cus_mei",
@@ -99,7 +102,7 @@ function seedStore(): AppStore {
       direction: "outbound",
       state: "sent",
       mode: "demo",
-      createdAt: nowIso(-40 * 60 * 1000),
+      createdAt: nowIso(-40 * 60 * 60 * 1000),
     },
   ];
 
@@ -107,27 +110,45 @@ function seedStore(): AppStore {
 }
 
 async function persist(store: AppStore): Promise<void> {
-  memory.store = store;
-  try {
-    await mkdir(path.dirname(STORE_PATH), { recursive: true });
-    await writeFile(STORE_PATH, JSON.stringify(store, null, 2), "utf8");
-  } catch {
-    // File persistence is best-effort for local/demo use.
+  g.__relayStore = store;
+  const payload = JSON.stringify(store, null, 2);
+
+  async function writeTo(filePath: string) {
+    try {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(/* turbopackIgnore: true */ filePath, payload, "utf8");
+    } catch {
+      // File persistence is best-effort; memory still holds the latest feed.
+    }
   }
+
+  await Promise.all([writeTo(DATA_STORE), writeTo(TMP_STORE)]);
 }
 
-export async function getStore(): Promise<AppStore> {
-  if (memory.store) return memory.store;
-
+async function readFrom(filePath: string): Promise<AppStore | null> {
   try {
-    const raw = await readFile(STORE_PATH, "utf8");
+    const raw = await readFile(/* turbopackIgnore: true */ filePath, "utf8");
     const parsed = JSON.parse(raw) as AppStore;
     if (Array.isArray(parsed.customers) && Array.isArray(parsed.updates)) {
-      memory.store = parsed;
       return parsed;
     }
   } catch {
-    // First run.
+    // Missing or unreadable at this path.
+  }
+  return null;
+}
+
+async function readPersisted(): Promise<AppStore | null> {
+  return (await readFrom(DATA_STORE)) ?? (await readFrom(TMP_STORE));
+}
+
+export async function getStore(): Promise<AppStore> {
+  if (g.__relayStore) return g.__relayStore;
+
+  const persisted = await readPersisted();
+  if (persisted) {
+    g.__relayStore = persisted;
+    return persisted;
   }
 
   const seeded = seedStore();
