@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { ActivityFeed } from "@/components/activity-feed";
 import { AppShell } from "@/components/app-shell";
@@ -8,6 +8,14 @@ import { Composer, type ComposerValues } from "@/components/composer";
 import { PhonePreview } from "@/components/phone-preview";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  getDeskCacheSnapshot,
+  mergeById,
+  mergeCustomers,
+  readDeskCache,
+  subscribeDeskCache,
+  writeDeskCache,
+} from "@/lib/desk-cache";
 import { buildStatusMessage } from "@/lib/templates";
 import type { ConnectionStatus, Customer, StatusUpdate } from "@/lib/types";
 
@@ -30,8 +38,10 @@ export function StatusDesk({
   initialUpdates: StatusUpdate[];
 }) {
   const [status, setStatus] = useState<ConnectionStatus>(initialStatus);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [updates, setUpdates] = useState<StatusUpdate[]>(initialUpdates);
+  const [sessionCustomers, setSessionCustomers] = useState<Customer[]>([]);
+  const [sessionUpdates, setSessionUpdates] = useState<StatusUpdate[]>([]);
+  const [polledCustomers, setPolledCustomers] = useState<Customer[]>(initialCustomers);
+  const [polledUpdates, setPolledUpdates] = useState<StatusUpdate[]>(initialUpdates);
   const [values, setValues] = useState<ComposerValues>(EMPTY_VALUES);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -39,12 +49,52 @@ export function StatusDesk({
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const cacheSnapshot = useSyncExternalStore(
+    subscribeDeskCache,
+    getDeskCacheSnapshot,
+    () => "",
+  );
+  const cached = useMemo(() => {
+    if (!cacheSnapshot) return readDeskCache();
+    try {
+      return JSON.parse(cacheSnapshot) as { customers: Customer[]; updates: StatusUpdate[] };
+    } catch {
+      return readDeskCache();
+    }
+  }, [cacheSnapshot]);
+
+  const customers = mergeCustomers(
+    sessionCustomers,
+    cached?.customers ?? [],
+    polledCustomers,
+    initialCustomers,
+  );
+  const updates = mergeById(
+    sessionUpdates,
+    cached?.updates ?? [],
+    polledUpdates,
+    initialUpdates,
+  );
+
+  const sessionCustomersRef = useRef(sessionCustomers);
+  const sessionUpdatesRef = useRef(sessionUpdates);
+
+  useEffect(() => {
+    sessionCustomersRef.current = sessionCustomers;
+    sessionUpdatesRef.current = sessionUpdates;
+  }, [sessionCustomers, sessionUpdates]);
+
+  const persistLocal = useCallback((nextCustomers: Customer[], nextUpdates: StatusUpdate[]) => {
+    writeDeskCache({ customers: nextCustomers, updates: nextUpdates });
+  }, []);
+
   const load = useCallback(async () => {
     try {
+      const fetchOpts: RequestInit = { cache: "no-store" };
       const [statusRes, customersRes, updatesRes] = await Promise.all([
-        fetch("/api/status"),
-        fetch("/api/customers"),
-        fetch("/api/updates"),
+        fetch("/api/status", fetchOpts),
+        fetch("/api/customers", fetchOpts),
+        fetch("/api/updates", fetchOpts),
       ]);
 
       if (!statusRes.ok || !customersRes.ok || !updatesRes.ok) {
@@ -56,8 +106,21 @@ export function StatusDesk({
       const updatesJson = (await updatesRes.json()) as { updates: StatusUpdate[] };
 
       setStatus(statusJson);
-      setCustomers(customersJson.customers);
-      setUpdates(updatesJson.updates);
+      setPolledCustomers(customersJson.customers);
+      setPolledUpdates(updatesJson.updates);
+      const existing = readDeskCache();
+      writeDeskCache({
+        customers: mergeCustomers(
+          sessionCustomersRef.current,
+          customersJson.customers,
+          existing?.customers ?? [],
+        ),
+        updates: mergeById(
+          sessionUpdatesRef.current,
+          updatesJson.updates,
+          existing?.updates ?? [],
+        ),
+      });
       setLoadError(null);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Could not load status updates.");
@@ -105,14 +168,29 @@ export function StatusDesk({
         throw new Error(payload.error || "Could not send the status update.");
       }
       if (payload.update) {
-        setUpdates((current) => [payload.update!, ...current.filter((item) => item.id !== payload.update!.id)]);
+        const nextUpdates = mergeById([payload.update], updates);
+        const nextCustomers = mergeCustomers(
+          [
+            {
+              id: payload.update.customerId,
+              name: payload.update.customerName,
+              phone: payload.update.phone,
+              lastReference: payload.update.reference,
+              lastStatusId: payload.update.statusId,
+              lastContactAt: payload.update.createdAt,
+            },
+          ],
+          customers,
+        );
+        setSessionUpdates(nextUpdates);
+        setSessionCustomers(nextCustomers);
+        persistLocal(nextCustomers, nextUpdates);
       }
       setNotice(
         payload.mode === "demo"
           ? "Saved in demo mode. Add WhatsApp Cloud API credentials in Settings to send a real message."
           : `Status update sent to ${values.customerName} on WhatsApp.`,
       );
-      await load();
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Could not send the status update.");
     } finally {
@@ -131,11 +209,15 @@ export function StatusDesk({
         text,
       }),
     });
-    const payload = (await response.json()) as { error?: string };
+    const payload = (await response.json()) as { error?: string; update?: StatusUpdate };
     if (!response.ok) {
       throw new Error(payload.error || "Could not simulate the reply.");
     }
-    await load();
+    if (payload.update) {
+      const nextUpdates = mergeById([payload.update], updates);
+      setSessionUpdates(nextUpdates);
+      persistLocal(customers, nextUpdates);
+    }
   }
 
   return (
