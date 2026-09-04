@@ -127,7 +127,7 @@ const ipv6 = attach(createServer());
 
 await listen(ipv4, { port: PUBLIC_PORT, host: "0.0.0.0" });
 try {
-    await listen(ipv6, { port: PUBLIC_PORT, host: "::", ipv6Only: true });
+  await listen(ipv6, { port: PUBLIC_PORT, host: "::", ipv6Only: true });
   console.log(`Relay preview http://127.0.0.1:${PUBLIC_PORT} and http://[::1]:${PUBLIC_PORT}`);
 } catch (error) {
   console.log(`Relay preview http://127.0.0.1:${PUBLIC_PORT} (IPv6 unavailable: ${error.message})`);
