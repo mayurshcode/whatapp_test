@@ -46,6 +46,7 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
       const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           businessName: settings.businessName,
           phoneNumberId: settings.phoneNumberId,
@@ -53,9 +54,20 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
           accessToken: accessToken || undefined,
         }),
       });
-      const payload = (await response.json()) as SettingsState & { error?: string };
+      const text = await response.text();
+      let payload: (SettingsState & { error?: string }) | null = null;
+      if (text) {
+        try {
+          payload = JSON.parse(text) as SettingsState & { error?: string };
+        } catch {
+          throw new Error("Could not save settings. The server returned an invalid response.");
+        }
+      }
       if (!response.ok) {
-        throw new Error(payload.error || "Could not save settings.");
+        throw new Error(payload?.error || "Could not save settings.");
+      }
+      if (!payload) {
+        throw new Error("Could not save settings. The server returned an empty response.");
       }
       setSettings(payload);
       setAccessToken("");
@@ -166,7 +178,7 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
                 }
               />
             </div>
-            <Button disabled={saving} onClick={() => void save()}>
+            <Button type="button" disabled={saving} onClick={() => void save()}>
               {saving ? "Saving…" : "Save connection"}
             </Button>
           </CardContent>
