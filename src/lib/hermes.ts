@@ -1,4 +1,4 @@
-import { isHermesConfigured } from "./config";
+import { isHermesConfigured, isLoopbackHermesUrl, isVercelRuntime } from "./config";
 import { toApiPhone } from "./phone";
 import type { HermesBridgeStatus, WhatsAppConfig } from "./types";
 
@@ -22,6 +22,15 @@ export type HermesHealth = {
   detail?: string;
 };
 
+export type HermesPairing = {
+  configured: boolean;
+  status: HermesBridgeStatus;
+  qr: string | null;
+  userName: string | null;
+  userId: string | null;
+  detail?: string;
+};
+
 type HermesHealthPayload = {
   status?: string;
   queueLength?: number;
@@ -34,9 +43,10 @@ type HermesSendPayload = {
   error?: string;
 };
 
-const HEALTH_TIMEOUT_MS = 2000;
+const HEALTH_TIMEOUT_MS = 5000;
 const SEND_TIMEOUT_MS = 20000;
 const POLL_TIMEOUT_MS = 8000;
+const PAIR_TIMEOUT_MS = 5000;
 
 export function toWhatsAppJid(phone: string): string {
   const digits = toApiPhone(phone);
@@ -53,10 +63,19 @@ export function phoneFromJid(value: string): string {
   return digits ? `+${digits}` : "";
 }
 
+function hermesHeaders(config: WhatsAppConfig | undefined, extra?: HeadersInit): HeadersInit {
+  const headers = new Headers(extra);
+  if (config?.hermesBridgeToken && !headers.has("authorization")) {
+    headers.set("Authorization", `Bearer ${config.hermesBridgeToken}`);
+  }
+  return headers;
+}
+
 async function fetchJson<T>(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  config?: WhatsAppConfig,
 ): Promise<{ ok: boolean; status: number; data: T | null; text: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -64,6 +83,7 @@ async function fetchJson<T>(
   try {
     const response = await fetch(url, {
       ...init,
+      headers: hermesHeaders(config, init.headers),
       signal: controller.signal,
       cache: "no-store",
     });
@@ -87,11 +107,22 @@ export async function probeHermesHealth(config: WhatsAppConfig): Promise<HermesH
     return { configured: false, connected: false, status: "unconfigured" };
   }
 
+  if (isVercelRuntime() && isLoopbackHermesUrl(config.hermesUrl)) {
+    return {
+      configured: true,
+      connected: false,
+      status: "unreachable",
+      detail:
+        "This Vercel deployment cannot reach 127.0.0.1. Run `npm run hermes` on an always-on machine, expose it with a public HTTPS URL, and set HERMES_WHATSAPP_URL to that URL.",
+    };
+  }
+
   try {
     const result = await fetchJson<HermesHealthPayload>(
       `${config.hermesUrl}/health`,
       { method: "GET" },
       HEALTH_TIMEOUT_MS,
+      config,
     );
 
     if (!result.ok || !result.data) {
@@ -134,6 +165,73 @@ export async function probeHermesHealth(config: WhatsAppConfig): Promise<HermesH
   }
 }
 
+type HermesQrPayload = {
+  qr?: string | null;
+  status?: string;
+  user?: { id?: string | null; name?: string | null } | null;
+};
+
+export async function fetchHermesPairing(config: WhatsAppConfig): Promise<HermesPairing> {
+  const health = await probeHermesHealth(config);
+  if (!health.configured) {
+    return { configured: false, status: "unconfigured", qr: null, userName: null, userId: null };
+  }
+
+  if (health.status === "unreachable") {
+    return {
+      configured: true,
+      status: "unreachable",
+      qr: null,
+      userName: null,
+      userId: null,
+      detail: health.detail,
+    };
+  }
+
+  try {
+    const result = await fetchJson<HermesQrPayload>(
+      `${config.hermesUrl}/qr`,
+      { method: "GET" },
+      PAIR_TIMEOUT_MS,
+      config,
+    );
+
+    if (result.ok && result.data) {
+      const raw = (result.data.status || health.status || "").toLowerCase();
+      const status: HermesBridgeStatus =
+        raw === "connected"
+          ? "connected"
+          : raw === "connecting"
+            ? "connecting"
+            : raw
+              ? "disconnected"
+              : health.status;
+
+      return {
+        configured: true,
+        status,
+        qr: typeof result.data.qr === "string" && result.data.qr.trim() ? result.data.qr : null,
+        userName: result.data.user?.name || null,
+        userId: result.data.user?.id || null,
+      };
+    }
+  } catch {
+    // Older Hermes bridges have no /qr; fall through to health-only pairing.
+  }
+
+  return {
+    configured: true,
+    status: health.status,
+    qr: null,
+    userName: null,
+    userId: null,
+    detail:
+      health.status === "connected"
+        ? undefined
+        : "Bridge is up. Start `npm run hermes` so Relay can show a pairing QR.",
+  };
+}
+
 export async function sendWhatsAppText(options: {
   config: WhatsAppConfig;
   to: string;
@@ -157,6 +255,7 @@ export async function sendWhatsAppText(options: {
         body: JSON.stringify({ chatId, message: options.body }),
       },
       SEND_TIMEOUT_MS,
+      options.config,
     );
 
     if (!result.ok) {
@@ -232,6 +331,7 @@ export async function pollHermesMessages(config: WhatsAppConfig): Promise<Incomi
       `${config.hermesUrl}/messages`,
       { method: "GET" },
       POLL_TIMEOUT_MS,
+      config,
     );
     if (!result.ok) return [];
     return parseHermesMessages(result.data);

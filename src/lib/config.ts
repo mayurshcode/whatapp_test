@@ -53,6 +53,20 @@ export function normalizeHermesUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+export function isLoopbackHermesUrl(value: string): boolean {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  } catch {
+    return /^(https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\])/i.test(value);
+  }
+}
+
+export function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1";
+}
+
 export async function getWhatsAppConfig(): Promise<WhatsAppConfig> {
   const stored = await readStoredConfig();
   return {
@@ -61,6 +75,7 @@ export async function getWhatsAppConfig(): Promise<WhatsAppConfig> {
     ),
     hermesWebhookSecret:
       process.env.HERMES_WEBHOOK_SECRET?.trim() || stored.hermesWebhookSecret?.trim() || "",
+    hermesBridgeToken: process.env.HERMES_BRIDGE_TOKEN?.trim() || "",
     businessName:
       process.env.WHATSAPP_BUSINESS_NAME?.trim() ||
       stored.businessName?.trim() ||

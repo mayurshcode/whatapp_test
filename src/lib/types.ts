@@ -52,6 +52,7 @@ export type StatusUpdate = {
 export type WhatsAppConfig = {
   hermesUrl: string;
   hermesWebhookSecret: string;
+  hermesBridgeToken: string;
   businessName: string;
 };
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
+import { HermesPairing } from "@/components/hermes-pairing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -109,9 +110,10 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
       <div className="mb-6 max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight">Hermes WhatsApp connection</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Relay talks to the local Hermes Agent WhatsApp bridge (Baileys session). Pair a phone
-          with <span className="font-mono">hermes whatsapp</span>, then point this desk at the
-          bridge URL. No Meta Cloud API or third-party WhatsApp provider is used.
+          Relay sends through a Hermes Agent WhatsApp bridge (Baileys session), not Meta Cloud
+          API. Scan the QR in this page. On Vercel, point{" "}
+          <span className="font-mono">HERMES_WHATSAPP_URL</span> at a public HTTPS URL for that
+          always-on bridge — serverless functions cannot keep the WhatsApp socket themselves.
         </p>
       </div>
 
@@ -167,25 +169,21 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
           <CardHeader>
             <CardTitle>Hermes Agent bridge</CardTitle>
             <CardDescription>
-              After pairing, Hermes exposes a loopback HTTP API (default port 3000). Environment
-              variables override anything saved here.
+              Default local URL is port 3000. On Vercel this must be a public HTTPS host that
+              reaches <span className="font-mono">npm run hermes</span>. Environment variables
+              override anything saved here.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
               <li>
-                Run <span className="font-mono text-foreground">hermes whatsapp</span> and scan the
-                QR code from a dedicated bot number.
+                On an always-on machine run{" "}
+                <span className="font-mono text-foreground">npm run hermes</span>.
               </li>
+              <li>Scan the QR below from a dedicated bot WhatsApp number.</li>
               <li>
-                Start the bridge with <span className="font-mono text-foreground">hermes gateway</span>{" "}
-                or the WhatsApp bridge process so <span className="font-mono">/health</span> returns{" "}
-                <span className="font-mono">connected</span>.
-              </li>
-              <li>
-                Set <span className="font-mono">WHATSAPP_ALLOWED_USERS</span> in Hermes to the
-                customer numbers you will message, or <span className="font-mono">*</span> to allow
-                everyone.
+                For Vercel, tunnel or host that front and set{" "}
+                <span className="font-mono">HERMES_WHATSAPP_URL</span> to the public URL.
               </li>
             </ol>
             <div className="space-y-2">
@@ -224,6 +222,8 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
             </Button>
           </CardContent>
         </Card>
+
+        <HermesPairing hermesUrl={settings.hermesUrl} hermesStatus={settings.hermesStatus} />
 
         <Card>
           <CardHeader>
