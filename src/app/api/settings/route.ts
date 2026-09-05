@@ -1,22 +1,26 @@
-import { getWhatsAppConfig, isLiveConfig, maskSecret, saveWhatsAppConfig } from "@/lib/config";
+import { getWhatsAppConfig, isHermesConfigured, maskSecret, saveWhatsAppConfig } from "@/lib/config";
+import { probeHermesHealth } from "@/lib/hermes";
 
 export const dynamic = "force-dynamic";
 
-function settingsResponse(config: Awaited<ReturnType<typeof getWhatsAppConfig>>) {
+async function settingsResponse(config: Awaited<ReturnType<typeof getWhatsAppConfig>>) {
+  const health = await probeHermesHealth(config);
   return {
-    mode: isLiveConfig(config) ? "live" : "demo",
+    mode: health.connected ? "live" : "demo",
     businessName: config.businessName,
-    phoneNumberId: config.phoneNumberId,
-    verifyToken: config.verifyToken,
-    accessTokenMasked: maskSecret(config.accessToken),
-    accessTokenSet: Boolean(config.accessToken),
-    webhookPath: "/api/webhook/whatsapp",
+    hermesUrl: config.hermesUrl,
+    hermesWebhookSecretSet: Boolean(config.hermesWebhookSecret),
+    hermesWebhookSecretMasked: maskSecret(config.hermesWebhookSecret),
+    hermesStatus: health.status,
+    hermesDetail: health.detail ?? null,
+    webhookPath: "/api/webhook/hermes",
+    configured: isHermesConfigured(config),
   };
 }
 
 export async function GET() {
   const config = await getWhatsAppConfig();
-  return Response.json(settingsResponse(config), {
+  return Response.json(await settingsResponse(config), {
     headers: { "Cache-Control": "no-store" },
   });
 }
@@ -24,9 +28,8 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const payload = (await request.json().catch(() => null)) as {
-      accessToken?: string;
-      phoneNumberId?: string;
-      verifyToken?: string;
+      hermesUrl?: string;
+      hermesWebhookSecret?: string;
       businessName?: string;
     } | null;
 
@@ -35,13 +38,12 @@ export async function POST(request: Request) {
     }
 
     const next = await saveWhatsAppConfig({
-      accessToken: payload.accessToken,
-      phoneNumberId: payload.phoneNumberId,
-      verifyToken: payload.verifyToken,
+      hermesUrl: payload.hermesUrl,
+      hermesWebhookSecret: payload.hermesWebhookSecret,
       businessName: payload.businessName,
     });
 
-    return Response.json(settingsResponse(next), {
+    return Response.json(await settingsResponse(next), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

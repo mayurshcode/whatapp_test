@@ -1,4 +1,4 @@
-import { getWhatsAppConfig, isLiveConfig } from "@/lib/config";
+import { getWhatsAppConfig, isHermesConfigured } from "@/lib/config";
 import { isValidWhatsAppNumber, normalizePhone } from "@/lib/phone";
 import { addUpdate, findCustomerByPhone, upsertCustomer } from "@/lib/store";
 import type { StatusUpdate } from "@/lib/types";
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     note: "",
     direction: "inbound",
     state: "received",
-    mode: isLiveConfig(config) ? "live" : "demo",
+    mode: isHermesConfigured(config) ? "live" : "demo",
     createdAt: new Date().toISOString(),
   };
 

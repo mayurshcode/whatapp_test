@@ -49,27 +49,27 @@ async function persist(stored: StoredConfig): Promise<void> {
   await Promise.all([writeTo(DATA_CONFIG), writeTo(TMP_CONFIG)]);
 }
 
+export function normalizeHermesUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
 export async function getWhatsAppConfig(): Promise<WhatsAppConfig> {
   const stored = await readStoredConfig();
   return {
-    accessToken:
-      process.env.WHATSAPP_ACCESS_TOKEN?.trim() || stored.accessToken?.trim() || "",
-    phoneNumberId:
-      process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
-      stored.phoneNumberId?.trim() ||
-      "",
-    verifyToken:
-      process.env.WHATSAPP_VERIFY_TOKEN?.trim() || stored.verifyToken?.trim() || "relay-demo-verify",
+    hermesUrl: normalizeHermesUrl(
+      process.env.HERMES_WHATSAPP_URL?.trim() || stored.hermesUrl || "",
+    ),
+    hermesWebhookSecret:
+      process.env.HERMES_WEBHOOK_SECRET?.trim() || stored.hermesWebhookSecret?.trim() || "",
     businessName:
       process.env.WHATSAPP_BUSINESS_NAME?.trim() ||
       stored.businessName?.trim() ||
       "Northside Market",
-    graphVersion: process.env.WHATSAPP_GRAPH_VERSION?.trim() || stored.graphVersion || "v21.0",
   };
 }
 
-export function isLiveConfig(config: WhatsAppConfig): boolean {
-  return Boolean(config.accessToken && config.phoneNumberId);
+export function isHermesConfigured(config: WhatsAppConfig): boolean {
+  return Boolean(config.hermesUrl);
 }
 
 export async function saveWhatsAppConfig(next: StoredConfig): Promise<WhatsAppConfig> {
@@ -78,9 +78,11 @@ export async function saveWhatsAppConfig(next: StoredConfig): Promise<WhatsAppCo
 
   for (const [key, value] of Object.entries(next) as [keyof StoredConfig, unknown][]) {
     if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (key === "accessToken" && !trimmed) continue;
-    merged[key] = trimmed;
+    if (key === "hermesUrl") {
+      merged.hermesUrl = normalizeHermesUrl(value);
+      continue;
+    }
+    merged[key] = value.trim();
   }
 
   await persist(merged);

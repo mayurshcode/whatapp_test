@@ -1,16 +1,19 @@
-import { getWhatsAppConfig, isLiveConfig, maskSecret } from "@/lib/config";
+import { getWhatsAppConfig, isHermesConfigured, maskSecret } from "@/lib/config";
+import { probeHermesHealth } from "@/lib/hermes";
+import { ingestHermesInbox } from "@/lib/inbox";
 import { listCustomers, listUpdates } from "@/lib/store";
 import type { ConnectionStatus, Customer, StatusUpdate } from "@/lib/types";
 
 export async function getConnectionStatus(): Promise<ConnectionStatus> {
   const config = await getWhatsAppConfig();
-  const live = isLiveConfig(config);
+  const health = await probeHermesHealth(config);
   return {
-    mode: live ? "live" : "demo",
-    configured: live,
+    mode: health.connected ? "live" : "demo",
+    configured: health.configured,
     businessName: config.businessName,
-    phoneNumberIdMasked: maskSecret(config.phoneNumberId),
-    webhookPath: "/api/webhook/whatsapp",
+    hermesUrl: config.hermesUrl,
+    hermesStatus: health.status,
+    webhookPath: "/api/webhook/hermes",
   };
 }
 
@@ -19,6 +22,7 @@ export async function getDeskData(): Promise<{
   customers: Customer[];
   updates: StatusUpdate[];
 }> {
+  await ingestHermesInbox();
   const [status, customers, updates] = await Promise.all([
     getConnectionStatus(),
     listCustomers(),
@@ -29,13 +33,16 @@ export async function getDeskData(): Promise<{
 
 export async function getSettingsData() {
   const config = await getWhatsAppConfig();
+  const health = await probeHermesHealth(config);
   return {
-    mode: isLiveConfig(config) ? "live" : "demo",
+    mode: health.connected ? "live" : "demo",
     businessName: config.businessName,
-    phoneNumberId: config.phoneNumberId,
-    verifyToken: config.verifyToken,
-    accessTokenMasked: maskSecret(config.accessToken),
-    accessTokenSet: Boolean(config.accessToken),
-    webhookPath: "/api/webhook/whatsapp",
+    hermesUrl: config.hermesUrl,
+    hermesWebhookSecretSet: Boolean(config.hermesWebhookSecret),
+    hermesWebhookSecretMasked: maskSecret(config.hermesWebhookSecret),
+    hermesStatus: health.status,
+    hermesDetail: health.detail ?? null,
+    webhookPath: "/api/webhook/hermes",
+    configured: isHermesConfigured(config),
   } as const;
 }

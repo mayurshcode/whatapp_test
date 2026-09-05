@@ -1,9 +1,10 @@
-import { getWhatsAppConfig, isLiveConfig } from "@/lib/config";
+import { getWhatsAppConfig, isHermesConfigured } from "@/lib/config";
+import { sendWhatsAppText } from "@/lib/hermes";
+import { ingestHermesInbox } from "@/lib/inbox";
 import { isValidWhatsAppNumber, normalizePhone, toApiPhone } from "@/lib/phone";
 import { addUpdate, listUpdates, upsertCustomer } from "@/lib/store";
 import { buildStatusMessage, getStatusTemplate } from "@/lib/templates";
 import type { StatusId, StatusUpdate } from "@/lib/types";
-import { sendWhatsAppText } from "@/lib/whatsapp";
 
 const STATUS_IDS: StatusId[] = [
   "confirmed",
@@ -24,6 +25,7 @@ function isStatusId(value: unknown): value is StatusId {
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  await ingestHermesInbox();
   const updates = await listUpdates();
   return Response.json(
     { updates },
@@ -71,7 +73,7 @@ export async function POST(request: Request) {
   }
 
   const config = await getWhatsAppConfig();
-  const mode = isLiveConfig(config) ? "live" : "demo";
+  const mode = isHermesConfigured(config) ? "live" : "demo";
   const template = getStatusTemplate(payload.statusId);
   const body = buildStatusMessage({
     customerName,
