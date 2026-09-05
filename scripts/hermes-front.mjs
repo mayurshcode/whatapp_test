@@ -214,21 +214,30 @@ function forward(req, res) {
   req.pipe(upstream);
 }
 
+function serve(port) {
+  const server = createServer();
+  server.keepAliveTimeout = 1;
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 30_000;
+  server.on("request", forward);
+  server.listen({ port, host: "0.0.0.0" }, () => {
+    console.log(`Hermes front http://127.0.0.1:${port} (QR at /qr)`);
+  });
+  return server;
+}
+
 startBridge();
-const server = createServer();
-server.keepAliveTimeout = 1;
-server.headersTimeout = 10_000;
-server.requestTimeout = 30_000;
-server.on("request", forward);
-server.listen({ port: PUBLIC_PORT, host: "0.0.0.0" }, () => {
-  console.log(`Hermes front http://127.0.0.1:${PUBLIC_PORT} (QR at /qr)`);
-  console.log(`Session ${SESSION_DIR}`);
-});
+const servers = [serve(PUBLIC_PORT)];
+const extraPort = Number(process.env.HERMES_EXTRA_PORT || 3000);
+if (extraPort && extraPort !== PUBLIC_PORT) {
+  servers.push(serve(extraPort));
+}
+console.log(`Session ${SESSION_DIR}`);
 
 function shutdown() {
   shuttingDown = true;
   bridgeChild?.kill("SIGTERM");
-  server.close();
+  for (const server of servers) server.close();
   setTimeout(() => process.exit(0), 500).unref();
 }
 
