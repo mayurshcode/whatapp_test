@@ -37,7 +37,7 @@ export function AppShell({
           <div className="flex items-center gap-2">
             {mode ? (
               <Badge variant={mode === "live" ? "default" : "secondary"} className="font-mono text-[11px]">
-                {mode === "live" ? "Live WhatsApp" : "Demo mode"}
+                {mode === "live" ? "Live Hermes" : "Demo mode"}
               </Badge>
             ) : null}
             <Button

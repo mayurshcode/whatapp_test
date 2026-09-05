@@ -31,7 +31,7 @@ function seedStore(): AppStore {
       phone: "+14155550102",
       lastReference: "ORD-1847",
       lastStatusId: "out_for_delivery",
-      lastContactAt: nowIso(-40 * 60 * 60 * 1000),
+      lastContactAt: nowIso(-40 * 60 * 1000),
     },
     {
       id: "cus_mei",
@@ -102,7 +102,7 @@ function seedStore(): AppStore {
       direction: "outbound",
       state: "sent",
       mode: "demo",
-      createdAt: nowIso(-40 * 60 * 60 * 1000),
+      createdAt: nowIso(-40 * 60 * 1000),
     },
   ];
 
@@ -210,4 +210,10 @@ export async function listCustomers(): Promise<Customer[]> {
 export async function findCustomerByPhone(phone: string): Promise<Customer | undefined> {
   const store = await getStore();
   return store.customers.find((customer) => customer.phone.replace(/\D/g, "") === phone.replace(/\D/g, ""));
+}
+
+export async function findUpdateByWhatsAppId(messageId: string): Promise<StatusUpdate | undefined> {
+  if (!messageId) return undefined;
+  const store = await getStore();
+  return store.updates.find((update) => update.whatsappMessageId === messageId);
 }
