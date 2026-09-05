@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0 --port 43147",
+    "dev": "node scripts/preview.mjs",
+    "setup": "bash scripts/setup-local.sh .",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0 --port 43147",
+    "start": "node scripts/preview.mjs",
+    "start:next": "next start --hostname 127.0.0.1 --port 43148",
     "lint": "eslint"
   },
   "dependencies": {
