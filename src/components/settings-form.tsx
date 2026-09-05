@@ -10,16 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ConnectionMode } from "@/lib/types";
+import type { ConnectionMode, HermesBridgeStatus } from "@/lib/types";
 
 export type SettingsState = {
   mode: ConnectionMode;
   businessName: string;
-  phoneNumberId: string;
-  verifyToken: string;
-  accessTokenMasked: string | null;
-  accessTokenSet: boolean;
+  hermesUrl: string;
+  hermesWebhookSecretSet: boolean;
+  hermesWebhookSecretMasked: string | null;
+  hermesStatus: HermesBridgeStatus;
+  hermesDetail: string | null;
   webhookPath: string;
+  configured: boolean;
 };
 
 function useOrigin() {
@@ -30,12 +32,27 @@ function useOrigin() {
   );
 }
 
+function statusLabel(status: HermesBridgeStatus): string {
+  switch (status) {
+    case "connected":
+      return "Hermes bridge is connected";
+    case "connecting":
+      return "Hermes is pairing or reconnecting";
+    case "disconnected":
+      return "Hermes is reachable but WhatsApp is not connected";
+    case "unreachable":
+      return "Relay cannot reach the Hermes bridge";
+    default:
+      return "Hermes is not configured";
+  }
+}
+
 export function SettingsForm({ initial }: { initial: SettingsState }) {
   const origin = useOrigin();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [accessToken, setAccessToken] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [settings, setSettings] = useState<SettingsState>(initial);
 
   async function save() {
@@ -49,9 +66,8 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
         cache: "no-store",
         body: JSON.stringify({
           businessName: settings.businessName,
-          phoneNumberId: settings.phoneNumberId,
-          verifyToken: settings.verifyToken,
-          accessToken: accessToken || undefined,
+          hermesUrl: settings.hermesUrl,
+          hermesWebhookSecret: webhookSecret || undefined,
         }),
       });
       const text = await response.text();
@@ -70,7 +86,7 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
         throw new Error("Could not save settings. The server returned an empty response.");
       }
       setSettings(payload);
-      setAccessToken("");
+      setWebhookSecret("");
       setSaved(true);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save settings.");
@@ -91,10 +107,11 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
       </Button>
 
       <div className="mb-6 max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">WhatsApp connection</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Hermes WhatsApp connection</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Connect Meta&apos;s WhatsApp Cloud API to send real status updates. Leave the token blank
-          to keep using demo mode.
+          Relay talks to the local Hermes Agent WhatsApp bridge (Baileys session). Pair a phone
+          with <span className="font-mono">hermes whatsapp</span>, then point this desk at the
+          bridge URL. No Meta Cloud API or third-party WhatsApp provider is used.
         </p>
       </div>
 
@@ -110,11 +127,23 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
           <AlertTitle>Saved</AlertTitle>
           <AlertDescription>
             {settings.mode === "live"
-              ? "Relay will send the next update through WhatsApp Cloud API."
-              : "Still in demo mode. Add both an access token and a phone number ID to go live."}
+              ? "Relay will send and receive the next updates through Hermes."
+              : settings.configured
+                ? "URL saved. Start the Hermes WhatsApp bridge, then send again."
+                : "Still in demo mode. Add the Hermes bridge URL to go live."}
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <Alert className="mb-6 max-w-2xl">
+        <AlertTitle>{statusLabel(settings.hermesStatus)}</AlertTitle>
+        <AlertDescription>
+          {settings.hermesDetail ||
+            (settings.hermesStatus === "connected"
+              ? "Outbound status updates go to POST /send. Replies are pulled from GET /messages."
+              : "Leave the URL blank to keep using demo mode on this machine.")}
+        </AlertDescription>
+      </Alert>
 
       <div className="grid max-w-2xl gap-6">
         <Card>
@@ -136,48 +165,60 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Cloud API credentials</CardTitle>
+            <CardTitle>Hermes Agent bridge</CardTitle>
             <CardDescription>
-              From Meta Business Suite: WhatsApp &gt; API Setup. Environment variables override
-              anything saved here.
+              After pairing, Hermes exposes a loopback HTTP API (default port 3000). Environment
+              variables override anything saved here.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+              <li>
+                Run <span className="font-mono text-foreground">hermes whatsapp</span> and scan the
+                QR code from a dedicated bot number.
+              </li>
+              <li>
+                Start the bridge with <span className="font-mono text-foreground">hermes gateway</span>{" "}
+                or the WhatsApp bridge process so <span className="font-mono">/health</span> returns{" "}
+                <span className="font-mono">connected</span>.
+              </li>
+              <li>
+                Set <span className="font-mono">WHATSAPP_ALLOWED_USERS</span> in Hermes to the
+                customer numbers you will message, or <span className="font-mono">*</span> to allow
+                everyone.
+              </li>
+            </ol>
             <div className="space-y-2">
-              <Label htmlFor="phoneNumberId">Phone number ID</Label>
+              <Label htmlFor="hermesUrl">Bridge URL</Label>
               <Input
-                id="phoneNumberId"
-                value={settings.phoneNumberId}
+                id="hermesUrl"
+                value={settings.hermesUrl}
                 onChange={(event) =>
-                  setSettings((current) => ({ ...current, phoneNumberId: event.target.value }))
+                  setSettings((current) => ({ ...current, hermesUrl: event.target.value }))
                 }
-                placeholder="123456789012345"
+                placeholder="http://127.0.0.1:3000"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="accessToken">Access token</Label>
+              <Label htmlFor="hermesWebhookSecret">Inbound webhook secret (optional)</Label>
               <Input
-                id="accessToken"
+                id="hermesWebhookSecret"
                 type="password"
-                value={accessToken}
-                onChange={(event) => setAccessToken(event.target.value)}
+                value={webhookSecret}
+                onChange={(event) => setWebhookSecret(event.target.value)}
                 placeholder={
-                  settings.accessTokenSet
-                    ? `Saved ${settings.accessTokenMasked ?? "token"} — paste a new one to replace`
-                    : "Paste a temporary or system user token"
+                  settings.hermesWebhookSecretSet
+                    ? `Saved ${settings.hermesWebhookSecretMasked ?? "secret"} — paste a new one to replace`
+                    : "Only needed if something POSTs events to Relay"
                 }
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="verifyToken">Webhook verify token</Label>
-              <Input
-                id="verifyToken"
-                value={settings.verifyToken}
-                onChange={(event) =>
-                  setSettings((current) => ({ ...current, verifyToken: event.target.value }))
-                }
-              />
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Use a dedicated WhatsApp number. Hermes uses the unofficial WhatsApp Web session, so
+              avoid bulk outbound. If the Hermes AI gateway is also polling{" "}
+              <span className="font-mono">/messages</span>, it will consume replies before this desk
+              sees them — run Relay as the only consumer, or forward events to the webhook below.
+            </p>
             <Button type="button" disabled={saving} onClick={() => void save()}>
               {saving ? "Saving…" : "Save connection"}
             </Button>
@@ -188,17 +229,21 @@ export function SettingsForm({ initial }: { initial: SettingsState }) {
           <CardHeader>
             <CardTitle>Receive customer replies</CardTitle>
             <CardDescription>
-              In Meta, set the callback URL to this webhook and use the same verify token.
+              Relay polls Hermes <span className="font-mono">GET /messages</span> every few seconds.
+              You can also POST the same event objects here.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Label>Callback URL</Label>
+            <Label>Forwarding URL</Label>
             <code className="block overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs">
               {webhookUrl}
             </code>
             <p className="text-xs text-muted-foreground">
-              Subscribe to the <span className="font-mono">messages</span> field. Replies show up on
-              the activity feed within a few seconds.
+              Expected JSON: a message or array with <span className="font-mono">chatId</span>,{" "}
+              <span className="font-mono">senderId</span>, <span className="font-mono">senderName</span>,
+              and <span className="font-mono">body</span>. If you set a webhook secret, send it as{" "}
+              <span className="font-mono">Authorization: Bearer …</span> or{" "}
+              <span className="font-mono">x-hermes-secret</span>.
             </p>
           </CardContent>
         </Card>
