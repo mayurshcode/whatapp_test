@@ -1,5 +1,12 @@
 export type ConnectionMode = "demo" | "live";
 
+export type HermesBridgeStatus =
+  | "unconfigured"
+  | "connected"
+  | "connecting"
+  | "disconnected"
+  | "unreachable";
+
 export type UpdateDirection = "outbound" | "inbound";
 
 export type DeliveryState = "queued" | "sent" | "failed" | "received";
@@ -43,11 +50,9 @@ export type StatusUpdate = {
 };
 
 export type WhatsAppConfig = {
-  accessToken: string;
-  phoneNumberId: string;
-  verifyToken: string;
+  hermesUrl: string;
+  hermesWebhookSecret: string;
   businessName: string;
-  graphVersion: string;
 };
 
 export type AppStore = {
@@ -59,6 +64,7 @@ export type ConnectionStatus = {
   mode: ConnectionMode;
   configured: boolean;
   businessName: string;
-  phoneNumberIdMasked: string | null;
+  hermesUrl: string;
+  hermesStatus: HermesBridgeStatus;
   webhookPath: string;
 };
